@@ -10,7 +10,7 @@ const SMB2 = require("@marsaud/smb2");
 const SambaClient = require("samba-client");
 const B2 = require("backblaze-b2");
 const crypto = require("crypto");
-const { shuffle } = require("lodash");
+const { shuffle, attempt } = require("lodash");
 
 console.log(process.argv);
 
@@ -277,22 +277,27 @@ process.on("unhandledRejection", (reason, p) => {
 
           console.log(`Uploading part number ${partNumber}`);
 
-          const { data: uploadPartData } = await b2.uploadPart({
-            partNumber, // A number from 1 to 10000
-            uploadUrl: uploadPartUrlData.uploadUrl,
-            uploadAuthToken: uploadPartUrlData.authorizationToken, // comes from getUploadPartUrl();
-            data: chunkBuffer, // this is expecting a Buffer not an encoded string,
-            hash: chunkSha1, // optional data hash, will use sha1(data) if not provided
-          });
+          await reattempt(async () => {
+            const { data: uploadPartData } = await b2.uploadPart({
+              partNumber, // A number from 1 to 10000
+              uploadUrl: uploadPartUrlData.uploadUrl,
+              uploadAuthToken: uploadPartUrlData.authorizationToken, // comes from getUploadPartUrl();
+              data: chunkBuffer, // this is expecting a Buffer not an encoded string,
+              hash: chunkSha1, // optional data hash, will use sha1(data) if not provided
+            });
+          }, 10);
         }
 
         const fileLargeFileArgs = {
           fileId,
           partSha1Array,
         };
-        const { data: finishLargeFileData } = await b2.finishLargeFile(
-          fileLargeFileArgs
-        );
+
+        await reattempt(async () => {
+          const { data: finishLargeFileData } = await b2.finishLargeFile(
+            fileLargeFileArgs
+          );
+        }, 10);
       } else {
         const { data: uploadUrlData } = await b2.getUploadUrl({
           bucketId: bucket.bucketId,
@@ -310,13 +315,15 @@ process.on("unhandledRejection", (reason, p) => {
           fileReadStream.on("error", reject);
         });
 
-        const { data: uploadFileData } = await b2.uploadFile({
-          uploadUrl: uploadUrlData.uploadUrl,
-          uploadAuthToken: uploadUrlData.authorizationToken,
-          fileName: targetPath,
-          data: fileBuffer, // this is expecting a Buffer, not an encoded string
-          hash: sha1, // optional data hash, will use sha1(data) if not provided
-        });
+        const { data: uploadFileData } = await reattempt(async () => {
+          return await b2.uploadFile({
+            uploadUrl: uploadUrlData.uploadUrl,
+            uploadAuthToken: uploadUrlData.authorizationToken,
+            fileName: targetPath,
+            data: fileBuffer, // this is expecting a Buffer, not an encoded string
+            hash: sha1, // optional data hash, will use sha1(data) if not provided
+          });
+        }, 5);
 
         console.log(`  - uploaded ${targetPath}`);
       }
@@ -334,3 +341,18 @@ process.on("unhandledRejection", (reason, p) => {
 
   console.log("Success? Probably. Maybe run it a few times.");
 })();
+
+const reattempt = async (callback, remainingAttempts) => {
+  let i = remainingAttempts;
+  while (i > 0) {
+    try {
+      const result = await callback();
+      return result;
+    } catch (e) {
+      console.error(e);
+      i--;
+      console.log(`Retrying..${i} attempts remaining`);
+    }
+  }
+  console.log(`Giving up trying after ${remainingAttempts} attempts.`);
+};
