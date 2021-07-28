@@ -34,3 +34,7 @@ It makes buckets based on the Samba shareName and the top-level directories of t
 The feature that's most specific to my use-case is that if you provide the fifth arg it will filter top-level directories whose names are entirely numbers, because for me those are years and I don't care about other directories.
 
 Requires the package.json deps which includes `samba-client` which depends on 'smbclient'. This is available on Linux. See [upstream docs on samba-client](https://www.npmjs.com/package/samba-client) for more.
+
+## Support
+
+Want to support me? [BuyMeACoffee.com/holloway](https://www.buymeacoffee.com/holloway)
