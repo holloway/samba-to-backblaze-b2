@@ -133,11 +133,33 @@ process.on("unhandledRejection", (reason, p) => {
 
     if (!bucket) {
       console.info(`Bucket "${bucketName}" doesn't exist, so creating it...`);
-      const result = await b2.createBucket({
-        bucketName,
-        bucketType: "allPrivate",
-      });
-      bucket = result.data;
+      try {
+        const result = await b2.createBucket({
+          bucketName,
+          bucketType: "allPrivate",
+        });
+        bucket = result.data;
+      } catch (e) {
+        console.error(e);
+        console.log("---------");
+        console.log(e.response);
+        console.log("---------");
+        console.log(e.response.data);
+        console.log("---------");
+        console.log(e.response.data.code);
+        console.log("---------");
+        if (e.response.data.code === "duplicate_bucket_name") {
+          console.log(
+            "Duplicate bucket name error so it already exists but they weren't previously able to list it. Weird."
+          );
+          const result = await b2.getBucket({
+            bucketName,
+          });
+          bucket = result.data;
+        } else {
+          console.error(e);
+        }
+      }
     }
 
     console.log(`Syncing ${yearFiles.length} files into bucket ${bucketName}`);
@@ -221,7 +243,9 @@ process.on("unhandledRejection", (reason, p) => {
 
       if (noofChunks >= 2) {
         // Use large file API
-        console.log("Large file upload...");
+        console.log(
+          `  - Large file upload. Splitting file into ${noofChunks} parts`
+        );
         const { data: startLargeFileResponse } = await b2.startLargeFile({
           bucketId: bucket.bucketId,
           fileName: targetPath,
@@ -245,9 +269,12 @@ process.on("unhandledRejection", (reason, p) => {
         for (let y = 0; y < noofChunks; y++) {
           const partNumber = y + 1;
 
+          const start = y * chunkSize;
+          const end = (y + 1) * chunkSize;
+
           const chunkReadStream = fs.createReadStream(TEMP_FILE_PATH, {
-            start: y * chunkSize,
-            end: (y + 1) * chunkSize,
+            start,
+            end,
           });
 
           const chunkSha1Hash = crypto.createHash("sha1");
@@ -271,14 +298,18 @@ process.on("unhandledRejection", (reason, p) => {
           partSha1Array.push(chunkSha1);
 
           if (uploadedChunks.includes(partNumber)) {
-            console.log(`Already uploaded ${targetPath} part ${partNumber}`);
+            console.log(
+              `  - Already uploaded ${targetPath} part ${partNumber}`
+            );
             continue;
           }
 
-          console.log(`Uploading part number ${partNumber}`);
+          console.log(
+            `  - Uploading part number ${partNumber} ${start}-${end}`
+          );
 
-          await reattempt(async () => {
-            const { data: uploadPartData } = await b2.uploadPart({
+          const { data: uploadPartData } = await reattempt(async () => {
+            return await b2.uploadPart({
               partNumber, // A number from 1 to 10000
               uploadUrl: uploadPartUrlData.uploadUrl,
               uploadAuthToken: uploadPartUrlData.authorizationToken, // comes from getUploadPartUrl();
@@ -298,6 +329,8 @@ process.on("unhandledRejection", (reason, p) => {
             fileLargeFileArgs
           );
         }, 10);
+
+        console.log(`  - Finished uploading large file ${targetPath}`);
       } else {
         const { data: uploadUrlData } = await b2.getUploadUrl({
           bucketId: bucket.bucketId,
