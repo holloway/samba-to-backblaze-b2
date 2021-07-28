@@ -324,13 +324,14 @@ process.on("unhandledRejection", (reason, p) => {
           partSha1Array,
         };
 
-        await reattempt(async () => {
-          const { data: finishLargeFileData } = await b2.finishLargeFile(
-            fileLargeFileArgs
-          );
+        const { data: finishLargeFileData } = await reattempt(async () => {
+          return await b2.finishLargeFile(fileLargeFileArgs);
         }, 10);
 
-        console.log(`  - Finished uploading large file ${targetPath}`);
+        console.log(
+          `  - Finished uploading large file ${targetPath}`,
+          finishLargeFileData
+        );
       } else {
         const { data: uploadUrlData } = await b2.getUploadUrl({
           bucketId: bucket.bucketId,
