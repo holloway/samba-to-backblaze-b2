@@ -15,7 +15,7 @@ const { shuffle } = require("lodash");
 console.log(process.argv);
 
 if (
-  process.argv.length >= 4 ||
+  process.argv.length < 4 ||
   process.argv0.includes("--help") ||
   process.argv0.includes("-?")
 ) {
