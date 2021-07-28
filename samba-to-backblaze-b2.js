@@ -1,20 +1,25 @@
 const usage = `Uploads SMB share to Backblaze B2 (their cloud S3-like service)
 
+This is a personal backup script and may not be suited to your use-case. It has some very specific features for my directory structure. It works for me but I'm not intending to support this, or make it general purpose. I've shared this in case it's useful as a reference.
+
 Features:
+ * Bucket per directory in Samba share
  * Files are uploaded with a SHA1 hash to prevent corruption;
  * Handles small files and large files, splitting them up over multiple uploads;
- * Handles revisions: if the filename is the same but the SHA1 is different we'll upload another copy and you can access both (via the Backblaze B2 website or API, but not via this script);
- * Never deletes, only appends to Backblaze.
- * Synchronous, because it makes it easier to see errors.
+ * Large files can be resumed by uploading that chunk.
+ * File revisions: if the filename is the same but the SHA1 is different we'll upload another copy and you can access both (via the Backblaze B2 website or API, but not via this script);
+ * Never deletes, only appends to Backblaze. Deleting your files on Samba won't be synced to delete your files on Backblaze.
+
+Limitations:
+ * Synchronous, although I consider this a feature (despite the slowness) because it makes it easier to comprehend errors.
+ * Requires top-level directories in Samba share. It will ignore top-level files.
 
 Usage:
- node samba-to-backblaze-b2.js SAMBA-USERNAME:SAMBA-PASSWORD:SHARE-URL BACKBLAZEB2-APPLICATIONKEYID:BACKBLAZEB2-APPLICATIONKEY
+ node samba-to-backblaze-b2.js SAMBA-USERNAME:SAMBA-PASSWORD:SHARE-URL BACKBLAZEB2-APPLICATIONKEYID:BACKBLAZEB2-APPLICATIONKEY [filterNonYears]
 E.g.
- node samba-to-backblaze-b2.js USERNAME:PASSWORD://192.168.1.2/shareName keyId:key
+ node samba-to-backblaze-b2.js USERNAME:PASSWORD://192.168.1.2/shareName keyId:key filterNonYears
 
-This is a personal backup script and may not be suited to your use-case. It has some very specific features for my directory structure. It works for me but I'm not intending to support this, or make it general purpose.
- 
-It makes buckets based on the Samba shareName and the top-level directories of the share. E.g. if you connect to //192.168.1.2/photos and that has directories of 2010, 2011, 2012 then it will create Backblaze buckets named "photos-2010", "photos-2011", "photos-2012".
+It makes buckets based on the Samba shareName and the top-level directories of the share. E.g. if you connect to //192.168.1.2/photos and that has directories of 2010, 2011, 2012 then it will create Backblaze buckets named "photos-2010", "photos-2011", "photos-2012". Note that Backblaze limits 10k files per bucket, so "photos-2012" could only have 10k files.
   
 The feature that's most specific to my use-case is that it only uploads directories whose names are entirely numbers, because for me those are years and I don't care about other directories. If you want to remove that and upload everything remove the ".filter(dirsWithoutNumbers)"
  
@@ -30,8 +35,20 @@ const { shuffle } = require("lodash");
 
 console.log(process.argv);
 
-if (process.argv.length !== 4 || process.argv0.includes("--help")) {
+if (
+  process.argv.length >= 4 ||
+  process.argv0.includes("--help") ||
+  process.argv0.includes("-?")
+) {
   throw Error(usage);
+}
+
+let directoryFilter = (val) => val;
+
+if (process.argv.length === 5) {
+  if (process.argv[4] === "filterNonYears") {
+    directoryFilter = (rootDir) => !rootDir.replace(/[0-9]/gi, "");
+  }
 }
 
 const sambaParts = process.argv[2].split(":");
@@ -78,13 +95,10 @@ process.on("unhandledRejection", (reason, p) => {
   console.error("Unhandled Rejection at: Promise ", p, " reason: ", reason);
 });
 
-const dirsWithoutNumbers = (rootDir) => !rootDir.replace(/[0-9]/gi, ""); // filter non-year named directories (ie number directories)
-
 (async () => {
-  // const data = await smb2Client.readdir("1995");
   const rootDirs = await smb2Client.readdir("");
   rootDirs.sort();
-  const years = shuffle(rootDirs.filter(dirsWithoutNumbers));
+  const years = shuffle(rootDirs.filter(directoryFilter));
   const b2 = new B2({
     applicationKeyId,
     applicationKey,
