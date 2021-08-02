@@ -4,16 +4,16 @@ This is a personal backup script and may not be suited to your use-case. It has 
 
 Features:
 
-- Bucket per directory in Samba share
+- Bucket per top-level directory in Samba share
 - Files are uploaded with a SHA1 hash to prevent corruption;
-- Handles small files and large files, splitting them up over multiple uploads;
-- Large files can be resumed by uploading that chunk.
+- Handles small files and large files, splitting them up over multiple upload parts;
+- Large files can be resumed by uploading that part.
 - File revisions: if the filename is the same but the SHA1 is different we'll upload another copy and you can access both (via the Backblaze B2 website or API, but not via this script);
 - Never deletes, only appends to Backblaze. Deleting your files on Samba won't be synced to delete your files on Backblaze.
 
 Limitations:
 
-- Synchronous, although I consider this a feature (despite the slowness) because it makes it easier to comprehend errors.
+- Synchronous uploads, although I consider this a feature (despite the slowness) because it makes it easier to comprehend errors.
 - Requires top-level directories in Samba share. It will ignore top-level files.
 - Only tested on Linux. Requires `smbclient` to be installed.
 
