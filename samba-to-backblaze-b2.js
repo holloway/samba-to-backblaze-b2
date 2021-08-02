@@ -150,14 +150,11 @@ process.on("unhandledRejection", (reason, p) => {
         console.log("---------");
         if (e.response.data.code === "duplicate_bucket_name") {
           console.log(
-            "Duplicate bucket name error so it already exists but they weren't previously able to list it. Weird."
+            "Duplicate bucket name error so it already exists but they weren't previously able to list it. Weird. Giving up for now."
           );
-          const result = await b2.getBucket({
-            bucketName,
-          });
-          bucket = result.data;
+          return;
         } else {
-          console.error(e);
+          console.error({ "Unknown error": true, e });
         }
       }
     }
@@ -215,12 +212,22 @@ process.on("unhandledRejection", (reason, p) => {
         (existingBucketFile) => existingBucketFile.fileName === targetPath
       );
 
+      const noofChunks = Math.ceil(size / chunkSize);
+
+      const hasNoBackblazeSha1 =
+        existingBucketFile && existingBucketFile.contentSha1 === "none";
       const sameSha1 =
         existingBucketFile && existingBucketFile.contentSha1 === sha1;
       const sameSize =
         existingBucketFile && existingBucketFile.contentLength === size;
 
-      if (existingBucketFile && sameSha1 && sameSize) {
+      if (
+        (noofChunks === 1 && existingBucketFile && sameSha1 && sameSize) || // small files have sha1
+        (noofChunks >= 2 &&
+          existingBucketFile &&
+          hasNoBackblazeSha1 &&
+          sameSize) // large files don't have a sha1 (Backblaze have an excuse about storing large files as several files so apparently it's hard to make a sha1 but from a user's perspective of course we want a sha1 of a backup and we don't care about storage details and this is a crappy workaround)
+      ) {
         console.log(
           `- ${targetPath} already backed up and identical. Skipping...`
         );
@@ -231,15 +238,15 @@ process.on("unhandledRejection", (reason, p) => {
         `- ${targetPath} not backed up yet (because ${
           !existingBucketFile ? "Filename doesn't exist." : ""
         } ${existingBucketFile && !sameSize ? "Different filesize." : ""} ${
-          existingBucketFile && !sameSha1 ? "Different sha1 hash." : ""
-        } `
+          existingBucketFile && !sameSha1
+            ? `Different sha1 hash ${existingBucketFile.contentSha1} != ${sha1}.`
+            : ""
+        })`
       );
 
       //   console.log(
       //     `  - Downloaded SMB file ${smbPath} written file to ${TEMP_FILE_PATH} (${size} bytes) SHA1:${sha1}`
       //   );
-
-      const noofChunks = Math.ceil(size / chunkSize);
 
       if (noofChunks >= 2) {
         // Use large file API
@@ -268,7 +275,6 @@ process.on("unhandledRejection", (reason, p) => {
 
         for (let y = 0; y < noofChunks; y++) {
           const partNumber = y + 1;
-
           const start = y * chunkSize;
           const end = (y + 1) * chunkSize;
 
@@ -308,15 +314,21 @@ process.on("unhandledRejection", (reason, p) => {
             `  - Uploading part number ${partNumber} ${start}-${end}`
           );
 
-          const { data: uploadPartData } = await reattempt(async () => {
-            return await b2.uploadPart({
-              partNumber, // A number from 1 to 10000
-              uploadUrl: uploadPartUrlData.uploadUrl,
-              uploadAuthToken: uploadPartUrlData.authorizationToken, // comes from getUploadPartUrl();
-              data: chunkBuffer, // this is expecting a Buffer not an encoded string,
-              hash: chunkSha1, // optional data hash, will use sha1(data) if not provided
-            });
-          }, 10);
+          const { data: uploadPartData } = await reattempt(
+            async () => {
+              return await b2.uploadPart({
+                partNumber, // A number from 1 to 10000
+                uploadUrl: uploadPartUrlData.uploadUrl,
+                uploadAuthToken: uploadPartUrlData.authorizationToken, // comes from getUploadPartUrl();
+                data: chunkBuffer, // this is expecting a Buffer not an encoded string,
+                hash: chunkSha1, // optional data hash, will use sha1(data) if not provided
+              });
+            },
+            10,
+            () => {
+              b2.cancelLargeFile({ fileId });
+            }
+          );
         }
 
         const fileLargeFileArgs = {
@@ -328,10 +340,7 @@ process.on("unhandledRejection", (reason, p) => {
           return await b2.finishLargeFile(fileLargeFileArgs);
         }, 10);
 
-        console.log(
-          `  - Finished uploading large file ${targetPath}`,
-          finishLargeFileData
-        );
+        console.log(`  - Finished uploading large file ${targetPath}`);
       } else {
         const { data: uploadUrlData } = await b2.getUploadUrl({
           bucketId: bucket.bucketId,
@@ -376,7 +385,7 @@ process.on("unhandledRejection", (reason, p) => {
   console.log("Success? Probably. Maybe run it a few times.");
 })();
 
-const reattempt = async (callback, remainingAttempts) => {
+const reattempt = async (callback, remainingAttempts, cleaup) => {
   let i = remainingAttempts;
   while (i > 0) {
     try {
@@ -385,8 +394,12 @@ const reattempt = async (callback, remainingAttempts) => {
     } catch (e) {
       console.error(e);
       i--;
-      console.log(`Retrying..${i} attempts remaining`);
+      console.log(` - Retrying..${i} attempts remaining`);
     }
   }
   console.log(`Giving up trying after ${remainingAttempts} attempts.`);
+  if (cleanup) {
+    const cleanup = await cleaup();
+    console.log(" - Ran cleanup", cleanup);
+  }
 };
