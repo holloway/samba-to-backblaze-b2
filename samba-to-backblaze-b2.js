@@ -209,7 +209,19 @@ process.on("unhandledRejection", (reason, p) => {
       //   console.log({ targetPath, size, sha1 });
 
       const existingBucketFile = existingBucketFiles.find(
-        (existingBucketFile) => existingBucketFile.fileName === targetPath
+        (existingBucketFile) => {
+          // if (targetPath.includes("/") || targetPath.includes("\\")) {
+          //   if (targetPath.includes(existingBucketFile.fileName)) {
+          //     console.log(
+          //       "UPLOADING DIRPATH",
+          //       existingBucketFile,
+          //       existingBucketFile.fileName,
+          //       targetPath
+          //     );
+          //   }
+          // }
+          return existingBucketFile.fileName === targetPath;
+        }
       );
 
       const noofChunks = Math.ceil(size / chunkSize);
@@ -237,7 +249,13 @@ process.on("unhandledRejection", (reason, p) => {
       console.log(
         `- ${targetPath} not backed up yet (because ${
           !existingBucketFile ? "Filename doesn't exist." : ""
-        } ${existingBucketFile && !sameSize ? "Different filesize." : ""} ${
+        } ${
+          existingBucketFile && !sameSize
+            ? `Different filesize ${
+                existingBucketFile && existingBucketFile.contentLength
+              } ${size}.`
+            : ""
+        } ${
           existingBucketFile && !sameSha1
             ? `Different sha1 hash ${existingBucketFile.contentSha1} != ${sha1}.`
             : ""
@@ -276,7 +294,7 @@ process.on("unhandledRejection", (reason, p) => {
         for (let y = 0; y < noofChunks; y++) {
           const partNumber = y + 1;
           const start = y * chunkSize;
-          const end = (y + 1) * chunkSize;
+          const end = (y + 1) * chunkSize - 1;
 
           const chunkReadStream = fs.createReadStream(TEMP_FILE_PATH, {
             start,
