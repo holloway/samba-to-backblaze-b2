@@ -224,7 +224,7 @@ process.on("unhandledRejection", (reason, p) => {
         }
       );
 
-      const noofChunks = Math.ceil(size / chunkSize);
+      const noofChunks = Math.ceil(size / (chunkSize - 1));
 
       const hasNoBackblazeSha1 =
         existingBucketFile && existingBucketFile.contentSha1 === "none";
@@ -241,7 +241,13 @@ process.on("unhandledRejection", (reason, p) => {
           sameSize) // large files don't have a sha1 (Backblaze have an excuse about storing large files as several files so apparently it's hard to make a sha1 but from a user's perspective of course we want a sha1 of a backup and we don't care about storage details and this is a crappy workaround)
       ) {
         console.log(
-          `- ${targetPath} already backed up and identical. Skipping...`
+          `- ${targetPath} ${
+            noofChunks >= 2 ? "(large file)" : ""
+          } already backed up and identical (filename already exists, same filesize ${
+            existingBucketFile.contentLength
+          } vs ${size} ${
+            !hasNoBackblazeSha1 && sameSha1 ? ", same hash" : ""
+          }). Skipping...`
         );
         continue;
       }
