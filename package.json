@@ -5,9 +5,7 @@
   "private": true,
   "license": "MIT",
   "dependencies": {
-    "@marsaud/smb2": "^0.18.0",
     "backblaze-b2": "^1.7.0",
-    "execa": "5",
     "lodash": "^4.17.21",
     "samba-client": "^4.0.0"
   }

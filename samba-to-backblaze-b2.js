@@ -6,8 +6,7 @@ E.g.
 `;
 
 const fs = require("fs");
-const SMB2 = require("@marsaud/smb2");
-const SambaClient = require("samba-client");
+const SambaClient = require("./samba-client");
 const B2 = require("backblaze-b2");
 const crypto = require("crypto");
 const { shuffle, attempt } = require("lodash");
@@ -26,7 +25,7 @@ let directoryFilter = (val) => val;
 
 if (process.argv.length === 5) {
   if (process.argv[4] === "filterNonYears") {
-    directoryFilter = (rootDir) => !rootDir.replace(/[0-9]/gi, "");
+    directoryFilter = (rootDir) => !rootDir.fileName.replace(/[0-9]/gi, "");
   }
 }
 
@@ -48,17 +47,16 @@ const sambaShareName = smbShareForwardSlashes.substr(
   smbShareForwardSlashes.lastIndexOf("/") + 1
 );
 
-// create an SMB2 connection
-// This is just used for walking directories
-const smb2Client = new SMB2({
-  share: smbShareForwardSlashes.replace(/\//g, "\\"),
-  domain: "WORKGROUP",
-  username: sambaUsername,
-  password: sambaPassword,
+console.log({
+  sambaUsername,
+  sambaPassword,
+  sambaShareName,
+  smbShareForwardSlashes,
+  applicationKeyId,
+  applicationKey,
 });
 
 // create a 'smbclient' cli wrapper client
-// because SMB2 crashes with large files
 const smbclientcli = new SambaClient({
   address: smbShareForwardSlashes,
   username: sambaUsername,
@@ -75,8 +73,10 @@ process.on("unhandledRejection", (reason, p) => {
 });
 
 (async () => {
-  const rootDirs = await smb2Client.readdir("");
-  rootDirs.sort();
+  const rootDirs = await smbclientcli.dir();
+
+  rootDirs.sort((a, b) => a.fileName.localeCompare(b.fileName));
+
   const years = shuffle(rootDirs.filter(directoryFilter));
   const b2 = new B2({
     applicationKeyId,
@@ -97,20 +97,24 @@ process.on("unhandledRejection", (reason, p) => {
   }));
 
   const getYearFiles = async (year) => {
+    if (typeof year !== "string") {
+      throw Error(`year wasn't string was ${typeof year}`);
+    }
     console.log(`Getting SMB files for ${year}`);
     const files = [];
     const walk = async (dir) => {
-      const paths = await smb2Client.readdir(dir);
-      const stats = await Promise.all(
-        paths.map(async (path) => smb2Client.stat(`${dir}\\${path}`))
-      );
-      const isDirectories = stats.map((stat) => stat.isDirectory());
-      for (let z = 0; z < isDirectories.length; z++) {
-        const isDirectory = isDirectories[z];
-        const smbPath = `${dir}\\${paths[z]}`;
+      if (typeof dir !== "string") {
+        throw Error(`dir wasn't string was ${typeof dir}`);
+      }
+      const paths = await smbclientcli.dir(dir);
+      // const paths2 = await smb2Client.readdir(dir);
+
+      for (let z = 0; z < paths.length; z++) {
+        const path = paths[z];
+        const smbPath = `${dir}\\${path.fileName}`;
         const targetPath = smbPath.replace(/\\/g, "/");
-        files.push({ smbPath, targetPath, isDirectory });
-        if (isDirectory) {
+        files.push({ smbPath, targetPath, isDirectory: path.isDirectory });
+        if (path.isDirectory) {
           await walk(smbPath);
         }
       }
@@ -125,6 +129,10 @@ process.on("unhandledRejection", (reason, p) => {
   };
 
   const backupYear = async (year) => {
+    if (typeof year !== "string") {
+      throw Error(`typeof year !== string was ${typeof year}`);
+    }
+
     const bucketName = `${sambaShareName}-${year}`;
     const yearFilesSorted = await getYearFiles(year);
     const yearFiles = shuffle(yearFilesSorted);
@@ -399,8 +407,9 @@ process.on("unhandledRejection", (reason, p) => {
 
   for (let i = 0; i < years.length; i++) {
     const year = years[i];
+
     try {
-      await backupYear(year);
+      await backupYear(year.fileName);
     } catch (e) {
       console.error(e);
     }
