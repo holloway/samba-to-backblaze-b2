@@ -85,16 +85,6 @@ class SambaClient {
     );
   }
 
-  async stat(remotePath, cwd) {
-    const dirResult = await this.execute(
-      "dir",
-      remotePath ? [remotePath] : undefined,
-      cwd || __dirname
-    );
-
-    return stats;
-  }
-
   async fileExists(remotePath, cwd) {
     try {
       await this.dir(remotePath, cwd);
@@ -222,7 +212,9 @@ const execFilePromise = (command, args, options) => {
   return new Promise((resolve, reject) => {
     execFile(command, args, newOptions, (error, stdout, stderr) => {
       if (error) {
+        console.log("execFile error");
         console.error(error);
+        console.log("================");
         reject(error);
         return;
       }

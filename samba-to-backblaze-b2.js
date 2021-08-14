@@ -196,7 +196,15 @@ process.on("unhandledRejection", (reason, p) => {
 
       // console.log(`Reading ${smbPath}`);
 
-      await smbclientcli.getFile(smbPath, TEMP_FILE_PATH);
+      try {
+        await smbclientcli.getFile(smbPath, TEMP_FILE_PATH);
+      } catch (e) {
+        if (e.toString().includes("NT_STATUS_IO_TIMEOUT")) {
+          // skip this one
+          console.error(e);
+          continue;
+        }
+      }
 
       // const readStream = await smb2Client.createReadStream(smbPath);
 
@@ -418,7 +426,7 @@ process.on("unhandledRejection", (reason, p) => {
   console.log("Success? Probably. Maybe run it a few times.");
 })();
 
-const reattempt = async (callback, remainingAttempts, cleaup) => {
+const reattempt = async (callback, remainingAttempts, cleanup) => {
   let i = remainingAttempts;
   while (i > 0) {
     try {
@@ -432,7 +440,7 @@ const reattempt = async (callback, remainingAttempts, cleaup) => {
   }
   console.log(`Giving up trying after ${remainingAttempts} attempts.`);
   if (cleanup) {
-    const cleanup = await cleaup();
+    const cleanup = await cleanup();
     console.log(" - Ran cleanup", cleanup);
   }
 };
